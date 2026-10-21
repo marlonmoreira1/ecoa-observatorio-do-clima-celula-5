@@ -21,8 +21,23 @@ MAX_CHARS_POR_MODULO = 60_000    # ~20 mil tokens por módulo no prompt final
 MAX_CHARS_POR_BLOCO = 40_000     # tamanho de cada bloco quando é preciso pré-resumir
 MAX_CHARS_MENSAGEM = 1_500       # corta respostas individuais muito longas
 PAUSA_ENTRE_CHAMADAS = 2         # segundos, evita rajada de requisições
+DEBUG = os.getenv("DEBUG_RELATORIO") == "1"   # grava o prompt exato em ultimo_prompt_relatorio.txt
 
 PREFIXOS_IGNORADOS = ("Olá! Sou seu assistente", "Erro ao processar consulta")
+
+# ---------------------------------------------------------------- VERDADES
+# Fatos já conferidos. Entram no prompt como âncora de escala e também contam como
+# "fonte válida" na conferência de números. CONFIRME se valem para a base completa
+# (sem filtro de período) e atualize quando a base mudar.
+VERDADES = """
+VERDADES DA BASE (conferidas; são a referência de escala):
+- Prejuízo total nacional: R$ 444.248.102.989,92 (R$ 444,25 bilhões).
+- Prejuízo total por região: Sul R$ 186,46 bilhões; Nordeste R$ 134,94 bilhões; Sudeste R$ 72,13 bilhões;
+  Centro-Oeste R$ 31,19 bilhões; Norte R$ 19,53 bilhões (a soma das cinco dá o total nacional).
+- Todos os valores estão em reais (R$). 1 bilhão = 1.000.000.000 (9 zeros).
+- Nenhum valor de região, estado, município ou tipo de desastre pode ser maior que o total nacional.
+  Portanto a palavra "trilhão" NUNCA se aplica a valores desta base.
+"""
 
 
 # ---------------------------------------------------------------- GCS
@@ -161,11 +176,31 @@ def _gerar(model, prompt, tentativas=4, **cfg):
             raise
 
 
+def _resumir_bloco(model, bloco, nome_modulo):
+    """Resume um bloco copiando os números literalmente (nunca convertendo)."""
+    prompt = f"""
+Você condensa registros de perguntas e respostas de um assistente sobre desastres climáticos
+no Brasil ({nome_modulo}).
+
+REGRAS:
+1. COPIE todos os números (R$, quantidades, percentuais) exatamente como estão, com os mesmos dígitos
+   e a mesma unidade ("bilhões" continua "bilhões"). NUNCA converta unidades, some, arredonde ou calcule.
+2. Nenhum valor desta base chega a trilhão; se algo parecer isso, mantenha o texto original do registro.
+3. Preserve nomes de municípios, UFs, regiões, tipos de desastre e períodos como aparecem.
+4. Una informações repetidas e remova conversa e cortesia.
+5. Saída: tópicos curtos "- fato com números". No máximo {MAX_CHARS_POR_BLOCO // 4} caracteres.
+
+REGISTROS:
+{bloco}
+"""
+    return _gerar(model, prompt, temperature=0.0)
+
+
 def preparar_modulo(model, itens, nome_modulo):
     """Devolve o texto do módulo dentro do orçamento.
 
     Cabe no orçamento -> usa as conversas como estão (nada é perdido).
-    Estourou        -> resume cada bloco preservando números e, se preciso, resume de novo.
+    Estourou        -> resume cada bloco (com conferência de números) e, se preciso, resume de novo.
     """
     if not itens:
         return "Sem conversas registradas."
@@ -178,20 +213,7 @@ def preparar_modulo(model, itens, nome_modulo):
     while len(texto) > MAX_CHARS_POR_MODULO:
         resumos = []
         for bloco in _agrupar_em_blocos(texto.split("\n\n"), MAX_CHARS_POR_BLOCO):
-            prompt = f"""
-Você condensa registros de perguntas e respostas de um assistente sobre desastres climáticos
-no Brasil ({nome_modulo}).
-
-REGRAS:
-1. Preserve TODOS os números (R$, quantidades, percentuais), nomes de municípios, UFs, regiões,
-   tipos de desastre e períodos exatamente como aparecem. Não arredonde nem invente.
-2. Una informações repetidas e remova conversa e cortesia.
-3. Saída: tópicos curtos "- fato com números". No máximo {MAX_CHARS_POR_BLOCO // 4} caracteres.
-
-REGISTROS:
-{bloco}
-"""
-            resumos.append(_gerar(model, prompt, temperature=0.1))
+            resumos.append(_resumir_bloco(model, bloco, nome_modulo))
             time.sleep(PAUSA_ENTRE_CHAMADAS)
         novo = "\n".join(resumos)
         if len(novo) >= len(texto):  # não encolheu: corta para garantir o orçamento
@@ -201,11 +223,100 @@ REGISTROS:
 
 
 # ---------------------------------------------------------------- relatório
+def _montar_prompt(str_econ, str_soc, data_formatada):
+    return f"""
+    Você é o Diretor Executivo de Análise Climática e Risco do Observatório do Clima.
+    Sua tarefa é gerar um DIAGNÓSTICO DE IMPACTO CLIMÁTICO CONSOLIDADO com base na TOTALIDADE de análises e perguntas feitas ao assistente de IA durante o dia em todas as seções.
+
+    CONTEXTO DOS DADOS: base do Atlas Digital de Desastres (S2iD/MDR), valores monetários
+    corrigidos pelo IGP-DI (base dez/2022), dano autodeclarado pelos municípios.
+    Prejuízo total = dano material + prejuízo público + prejuízo privado.
+    {VERDADES}
+    DADOS DE TODAS AS CONVERSAS DO MÓDULO ECONÔMICO (conversas-impacto-economico):
+    {str_econ}
+
+    DADOS DE TODAS AS CONVERSAS DO MÓDULO SOCIAL (conversas-impacto-social):
+    {str_soc}
+
+    REGRAS DE CONTEÚDO (obrigatórias):
+    1. Use SOMENTE números, municípios, estados e tipos de desastre que aparecem nas conversas
+       ou nas VERDADES. Nunca invente, estime ou complete valores. Se a informação não existir,
+       escreva "Não houve consulta sobre este ponto" em vez de preencher.
+    2. COPIE cada valor exatamente como aparece, com os mesmos dígitos e a mesma unidade
+       (se a conversa diz "R$ 12,34 bilhões", o relatório diz "R$ 12,34 bilhões"; exemplo ilustrativo).
+       NUNCA converta unidades, some, subtraia, arredonde de novo, calcule percentuais ou participações.
+       Não escreva o mesmo valor em dois formatos diferentes. Nunca use notação científica.
+       Associe cada valor ao rótulo (região, estado, município, tipo) da mesma linha da conversa.
+    3. NUNCA use "trilhão" nem notação científica: nenhum valor desta base chega a isso.
+       Todo valor de parte (região, estado, município, tipo) deve ser menor que o total nacional.
+    4. Se a mesma métrica aparecer com valores diferentes, NÃO invente explicação (como "recorte
+       específico" ou "somatório geral"): use o valor da conversa mais recente e registre a
+       divergência em uma linha "⚠️ Divergência nos logs: ..." ao final do relatório.
+    5. Ordene destaques do maior para o menor valor e dê preferência a números concretos
+       em vez de adjetivos.
+    6. Valores autodeclarados: não os trate como gasto efetivamente executado em reconstrução.
+    7. Recomendações: exatamente 3, cada uma ligada a um achado específico acima e com ação concreta.
+    8. Se um módulo ou recorte estiver sem conversas, diga isso na seção correspondente e não extrapole.
+       Não apresente contagem de eventos como se fosse impacto humano, nem subtipos de dano material
+       como se fossem setores do prejuízo privado ou público.
+    9. Português do Brasil, tom técnico e direto, sem repetir o mesmo dado em seções diferentes.
+
+    Estrutura obrigatória do relatório (em Markdown):
+
+    # 📋 Diagnóstico Executivo de Impacto Climático
+    **Data de Emissão:** {data_formatada}
+    **Status:** Síntese Diária Consolidada
+
+    ---
+
+    ## 🎯 1. Resumo Executivo
+    (Um parágrafo claro sintetizando os maiores destaques e emergências identificadas nas consultas do dia).
+
+    ## 💰 2. Destaques de Impacto Econômico
+    - **Perdas Financeiras Significativas:** (Citar os principais números e categorias discutidas).
+    - **Setores mais Vulneráveis:** (Citar os setores do prejuízo privado e serviços públicos mais atingidos).
+    (Parágrafo de visão geral com o prejuízo total e a divisão entre dano material, prejuízo público
+    e prejuízo privado, quando citados.)
+
+    ### 2.1 Recortes
+    - **Por região:** (...)
+    - **Por estado:** (...)
+    - **Por município:** (...)
+    - **Ao longo do tempo:** (...)
+    - **Por tipo de desastre:** (...)
+    - **Por setor:** (setores do prejuízo privado e serviços públicos mais atingidos, se citados.)
+
+    ## 👥 3. Destaques de Impacto Social e Humano
+    - **Populações em Risco:** (Citar achados sobre mortalidade, feridos e afetados).
+    - **Crise de Deslocamento:** (Resumo dos dados sobre desabrigados e desalojados).
+    (Parágrafo de visão geral: mortos, feridos, afetados, desabrigados e desalojados, quando citados.)
+
+    ### 3.1 Recortes
+    - **Por região:** (...)
+    - **Por estado:** (...)
+    - **Por município:** (...)
+    - **Ao longo do tempo:** (...)
+    - **Por tipo de desastre:** (...)
+
+    ## ✅ 4. Conclusão
+    (Síntese dos principais achados econômicos e sociais, o que significam em conjunto.)
+
+    ## 💡 5. Recomendações e Próximos Passos
+    (3 recomendações estratégicas baseadas nas descobertas).
+
+    ---
+    *Relatório gerado automaticamente via Observatório do Clima IA Engine.*
+
+    Responda apenas com o relatório em Markdown, sem texto antes ou depois.
+    """
+
+
 def gerar_diagnostico_executivo(desde=None):
     """Gera o diagnóstico. `desde=None` mantém o comportamento original (todos os logs).
 
     Para um relatório só do dia: gerar_diagnostico_executivo(
         desde=datetime.now(timezone.utc) - timedelta(days=1))
+
     """
     print("⏳ Gerando relatório consolidado do fim do dia a partir dos logs...")
 
@@ -233,87 +344,13 @@ def gerar_diagnostico_executivo(desde=None):
     timestamp_agora = datetime.now().strftime('%Y%m%d_%H%M%S')
     data_formatada = datetime.now().strftime('%d/%m/%Y %H:%M')
 
-    prompt_template = f"""
-    Você é o Diretor Executivo de Análise Climática e Risco do Observatório do Clima.
-    Sua tarefa é gerar um DIAGNÓSTICO DE IMPACTO CLIMÁTICO CONSOLIDADO com base na TOTALIDADE de análises e perguntas feitas ao assistente de IA durante o dia em todas as seções.
-
-    CONTEXTO DOS DADOS: base do Atlas Digital de Desastres (S2iD/MDR), valores monetários
-    corrigidos pelo IGP-DI (base dez/2022), dano autodeclarado pelos municípios.
-    Prejuízo total = dano material + prejuízo público + prejuízo privado.
-
-    DADOS DE TODAS AS CONVERSAS DO MÓDULO ECONÔMICO (conversas-impacto-economico):
-    {str_econ}
-
-    DADOS DE TODAS AS CONVERSAS DO MÓDULO SOCIAL (conversas-impacto-social):
-    {str_soc}
-
-    REGRAS DE CONTEÚDO (obrigatórias):
-    1. Use SOMENTE números, municípios, estados e tipos de desastre que aparecem nas conversas
-       acima. Nunca invente, estime ou complete valores. Se a informação não existir, escreva
-       "Não houve consulta sobre este ponto" em vez de preencher.
-    2. Mantenha os valores exatamente como nas conversas; formate dinheiro como R$ 1.234.567,89
-       ou abreviado (R$ 1,2 bi), sempre com a unidade.
-    3. Quando a mesma métrica aparecer com valores diferentes (filtros ou períodos distintos),
-       cite o recorte (ex.: "no Nordeste", "entre 2015 e 2023") ou aponte a divergência.
-    4. Ordene destaques do maior para o menor impacto e dê preferência a números concretos
-       em vez de adjetivos.
-    5. Valores autodeclarados: não os trate como gasto efetivamente executado em reconstrução.
-    6. Recomendações: exatamente 3, cada uma ligada a um achado específico acima e com ação concreta.
-    7. Se um módulo estiver sem conversas, diga isso na seção correspondente e não extrapole.
-    8. Português do Brasil, tom técnico e direto, sem repetir o mesmo dado em seções diferentes.
-
-    Estrutura obrigatória do relatório (em Markdown):
-
-    # 📋 Diagnóstico Executivo de Impacto Climático
-    **Data de Emissão:** {data_formatada}
-    **Status:** Síntese Diária Consolidada
-
-    ---
-
-    ## 🎯 1. Resumo Executivo
-    (Um parágrafo claro sintetizando os maiores destaques e emergências identificadas nas consultas do dia).
-
-    ## 💰 2. Destaques de Impacto Econômico
-    - **Perdas Financeiras Significativas:** (Citar os principais números e categorias discutidas).
-    - **Setores mais Vulneráveis:** (Citar os setores do prejuízo privado e serviços públicos mais atingidos).
-    (Parágrafo de visão geral com o prejuízo total e a divisão entre dano material, prejuízo público
-    e prejuízo privado, quando citados.)
- 
-    ### 2.1 Recortes
-    - **Por região:** (...)
-    - **Por estado:** (...)
-    - **Por município:** (...)
-    - **Ao longo do tempo:** (...)
-    - **Por tipo de desastre:** (...)
-    - **Por setor:** (setores do prejuízo privado e serviços públicos mais atingidos, se citados.)
- 
-
-    ## 👥 3. Destaques de Impacto Social e Humano
-    - **Populações em Risco:** (Citar achados sobre mortalidade, feridos e afetados).
-    - **Crise de Deslocamento:** (Resumo dos dados sobre desabrigados e desalojados).
-    (Parágrafo de visão geral: mortos, feridos, afetados, desabrigados e desalojados, quando citados.)
- 
-    ### 3.1 Recortes
-    - **Por região:** (...)
-    - **Por estado:** (...)
-    - **Por município:** (...)
-    - **Ao longo do tempo:** (...)
-    - **Por tipo de desastre:** (...
-
-     ## ✅ 4. Conclusão
-    (Síntese dos principais achados econômicos e sociais, o que significam em conjunto.)
-
-    ## 💡 5. Recomendações e Próximos Passos
-    (3 recomendações estratégicas baseadas nas descobertas).
-
-    ---
-    *Relatório gerado automaticamente via Observatório do Clima IA Engine.*
-
-    Responda apenas com o relatório em Markdown, sem texto antes ou depois.
-    """
+    prompt = _montar_prompt(str_econ, str_soc, data_formatada)
+    if DEBUG:
+        with open("ultimo_prompt_relatorio.txt", "w", encoding="utf-8") as f:
+            f.write(prompt)
 
     try:
-        relatorio_md = _gerar(model, prompt_template, temperature=0.2, max_output_tokens=4096)
+        relatorio_md = _gerar(model, prompt, temperature=0.1, max_output_tokens=4096)
     except Exception as e:
         print(f"❌ Falha ao gerar o relatório: {e}")
         return None
