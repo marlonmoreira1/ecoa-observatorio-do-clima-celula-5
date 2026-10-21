@@ -179,8 +179,7 @@ def gerar_grafico_pareto_social(df_dados, col_categoria, col_valor, titulo, max_
 if 'DH_total_afetados_geral' not in df.columns:
     df['DH_total_afetados_geral'] = (
         df.get('DH_total_danos_humanos_diretos', 0) + 
-        df.get('DH_OUTROS AFETADOS', 0) + 
-        df.get('DH_AFETADOS_SECA_ESTIAGEM', 0)
+        df.get('DH_OUTROS AFETADOS', 0)
     )
 if 'DH_deslocados_total' not in df.columns:
     df['DH_deslocados_total'] = df.get('DH_DESABRIGADOS', 0) + df.get('DH_DESALOJADOS', 0)
