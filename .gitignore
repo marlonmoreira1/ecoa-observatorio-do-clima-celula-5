@@ -1,0 +1,19 @@
+# Ambiente Virtual
+venv/
+
+# Credenciais e Ficheiros Sensíveis (CRÍTICO)
+.env
+*.json
+
+# Cache e Ficheiros Temporários
+__pycache__/
+*.pyc
+
+# Ficheiros Pesados / ZIP
+*.zip
+*.csv
+
+# Definições do Editor
+.vscode/
+
+.gitignore/
