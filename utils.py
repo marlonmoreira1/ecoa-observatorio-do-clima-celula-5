@@ -5,6 +5,9 @@ import numpy as np
 import streamlit as st
 import pydeck as pdk
 from google.cloud import storage
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # --- Dicionário Mestre de Cores ---
 DIC_CORES_MESTRE = {
@@ -147,6 +150,7 @@ def renderizar_legenda_dinamica(mapping_dict):
     st.markdown(html_str, unsafe_allow_html=True)
     
 
+@st.cache_data
 def gerar_mapa_pydeck_3d(df_dados, col_cat, col_metrica, nome_metrica_exata="Prejuízo", eh_social=False):
     if df_dados.empty or col_metrica not in df_dados.columns:
         view_state = pdk.ViewState(latitude=-14.2350, longitude=-51.9253, zoom=3.8, pitch=45, bearing=15)
@@ -209,9 +213,17 @@ def gerar_mapa_pydeck_3d(df_dados, col_cat, col_metrica, nome_metrica_exata="Pre
 
     df_mun['color'] = df_mun.apply(calc_color, axis=1)
 
+    # Subset leve transmitido para o navegador
+    cols_layer = [
+        'longitude', 'latitude', 'elevation', 'color', 'nome', 
+        'Sigla_UF', 'regiao', col_cat, 'ocorrencias', 'prejuizo_fmt', 
+        'total_municipio_fmt', 'outras_categorias_str'
+    ]
+    df_layer = df_mun[cols_layer].copy()
+
     layer_3d = pdk.Layer(
         "ColumnLayer",
-        data=df_mun,
+        data=df_layer,
         get_position=["longitude", "latitude"],
         get_elevation="elevation",
         elevation_scale=1,
@@ -241,6 +253,15 @@ def gerar_mapa_pydeck_3d(df_dados, col_cat, col_metrica, nome_metrica_exata="Pre
 
     return pdk.Deck(layers=[layer_3d], initial_view_state=view_state, tooltip=tooltip, map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json")
 
+
+@st.cache_resource
+def obter_cliente_gcs():
+    """Garante que a autenticação no GCP ocorra apenas uma vez na inicialização."""
+    if os.getenv("GCP_SERVICE_ACCOUNT") or "GCP_SERVICE_ACCOUNT" in st.secrets:
+        return storage.Client.from_service_account_info(st.secrets["GCP_SERVICE_ACCOUNT"])    
+    return None
+
+
 # --- FUNÇÃO DE SALVAMENTO NO BUCKET COM SOBRESCRIÇÃO ---
 def salvar_historico_no_bucket(bucket_name, file_prefix, historico, modulo_nome, creds_path="clima-ecoa-d53491e6166f.json"):
     """
@@ -250,10 +271,9 @@ def salvar_historico_no_bucket(bucket_name, file_prefix, historico, modulo_nome,
     """
     try:
         if not os.path.exists(creds_path):
-            if "GCP_SERVICE_ACCOUNT" in st.secrets:
-                client = storage.Client.from_service_account_info(st.secrets["GCP_SERVICE_ACCOUNT"])
-            else:
-                return False, "Arquivo de credenciais GCP não encontrado."
+            client = obter_cliente_gcs()
+            if not client:
+                client = storage.Client.from_service_account_json(creds_path)
         else:
             client = storage.Client.from_service_account_json(creds_path)
 

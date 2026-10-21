@@ -127,6 +127,12 @@ FORMATO:
     return _gerar(model, prompt)
 
 
+@st.cache_resource
+def obter_modelo_gemini(api_key: str):
+    """Mantém a instância do modelo Gemini em memória para todas as sessões."""
+    genai.configure(api_key=api_key)
+    return genai.GenerativeModel(MODELO)
+
 # ---------------------------------------------------------------- UI
 def renderizar_chat_ia(chave_tab: str, nome_tab: str, df_secao: pd.DataFrame,
                        bucket_destinatario: str = None, prefixo_arquivo: str = None):
@@ -137,7 +143,7 @@ def renderizar_chat_ia(chave_tab: str, nome_tab: str, df_secao: pd.DataFrame,
             return
 
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(MODELO)
+        model = obter_modelo_gemini(api_key)
         key_historico = f"chat_messages_{chave_tab}"
 
         if key_historico not in st.session_state:
