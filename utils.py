@@ -184,7 +184,7 @@ def gerar_mapa_pydeck_3d(df_dados, col_cat, col_metrica, nome_metrica_exata="Pre
     def extrair_resumo_categorias(cod_ibge):
         sub = df_mun[df_mun['codigo_ibge_6'] == cod_ibge]
         itens = [f"• {row[col_cat]}: {func_fmt(row['val_sum'])}" for _, row in sub.iterrows()]
-        return "<br/>".join(itens)
+        return "\n".join(itens)
 
     resumos_dict = {cod: extrair_resumo_categorias(cod) for cod in df_mun['codigo_ibge_6'].unique()}
     df_mun['outras_categorias_str'] = df_mun['codigo_ibge_6'].map(resumos_dict)
@@ -235,7 +235,7 @@ def gerar_mapa_pydeck_3d(df_dados, col_cat, col_metrica, nome_metrica_exata="Pre
                 f"<b>📊 {nome_metrica_exata.upper()} TOTAL NO MUNICÍPIO:</b> {{total_municipio_fmt}}<br/>"
                 f"<b>Detalhamento das Categorias em {{nome}}:</b><br/>"
                 f"{{outras_categorias_str}}",
-        "style": {"backgroundColor": "#0f172a", "color": "white", "fontSize": "12px", "padding": "10px", "borderRadius": "6px"}
+        "style": {"backgroundColor": "#0f172a", "color": "white", "fontSize": "12px", "padding": "10px", "borderRadius": "6px", "whiteSpace": "pre-line"}
     }
 
     return pdk.Deck(layers=[layer_3d], initial_view_state=view_state, tooltip=tooltip, map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json")
