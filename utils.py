@@ -234,7 +234,8 @@ def gerar_mapa_pydeck_3d(df_dados, col_cat, col_metrica, nome_metrica_exata="Pre
                 f"<hr style='margin: 5px 0; border-color: #475569;'/>"
                 f"<b>📊 {nome_metrica_exata.upper()} TOTAL NO MUNICÍPIO:</b> {{total_municipio_fmt}}<br/>"
                 f"<b>Detalhamento das Categorias em {{nome}}:</b><br/>"
-                f"{{outras_categorias_str}}",
+                f"{{outras_categorias_str}}"
+                f"<div style='white-space: pre-line; margin-top: 4px;'>{{outras_categorias_str}}</div>",
         "style": {"backgroundColor": "#0f172a", "color": "white", "fontSize": "12px", "padding": "10px", "borderRadius": "6px", "whiteSpace": "pre-line"}
     }
 
