@@ -55,8 +55,16 @@ def formata_numero(valor):
 
 @st.cache_data
 def carregar_coordenadas():
+    caminho_local = "municipios.csv"
     url = "https://raw.githubusercontent.com/kelvins/municipios-brasileiros/main/csv/municipios.csv"
-    df_coords = pd.read_csv(url)
+
+    if os.path.exists(caminho_local):
+        df_coords = pd.read_csv(caminho_local)
+    else:
+        df_coords = pd.read_csv(url)
+        # Salva localmente para as próximas vezes serem instantâneas
+        df_coords.to_csv(caminho_local, index=False)
+    
     df_coords['codigo_ibge_6'] = df_coords['codigo_ibge'].astype(str).str[:6]
     return df_coords[['codigo_ibge_6', 'latitude', 'longitude', 'nome']]
 
