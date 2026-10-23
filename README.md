@@ -20,6 +20,23 @@ O perfil de impacto no Brasil é distinto por tipologia. O país sofre duas cris
 
 ---
 
+## 🤖 Arquitetura de Inteligência Artificial: "Chat com os Dados"
+
+Um dos grandes diferenciais desta aplicação é a sua camada de Inteligência Artificial Generativa integrada diretamente aos dados. Construímos uma arquitetura que não apenas exibe gráficos, mas permite que o usuário *converse* com a base, utilizando a API do Gemini.
+
+### 💬 O Assistente Interativo (Text-to-Pandas)
+Dentro do aplicativo Streamlit, implementamos um **Chat Assistente IA**. O motor LLM traduz perguntas em linguagem natural do usuário (ex: *"Qual o prejuízo total causado por seca no Nordeste em 2022?"*) em instruções e consultas Pandas seguras, executadas na base de dados no contexto da aplicação. Os resultados matematicamente exatos retornam para o modelo formatar a resposta técnica.
+
+### 🧠 Memória Coletiva e Geração de Relatório
+Para escalar o conhecimento, implementamos um pipeline de memória coletiva:
+1. **Armazenamento:** Cada interação útil do assistente nos módulos Econômico e Social é salva no **Google Cloud Storage (GCS)** em formato JSON, atuando como um log da inteligência coletiva.
+2. **Síntese Diária:** Um script assíncrono isolado (`gerar_relatorio.py`) faz a varredura desses buckets, compacta as conversas relevantes de todos os usuários, remove repetições e solicita ao LLM que atue como o "Diretor Executivo de Análise".
+3. **Produto Final:** O modelo gera um *Diagnóstico Executivo Consolidado* em Markdown, apontando automaticamente os maiores riscos e tendências de todas as interações feitas. O relatório fica imediatamente disponível para visualização e download na página `📄 Relatorio Executivo`.
+
+Essa arquitetura elimina a necessidade de emitir os relatórios manualmente, extraindo valor estratégico direto do uso orgânico da plataforma.
+
+---
+
 ## 🔬 Metodologia de Análise
 
 A análise foi desenhada para separar o problema em eixos de atuação distintos, evitando que o impacto financeiro ofuscasse a crise humanitária (e vice-versa). A metodologia foi estruturada em dois módulos principais:
