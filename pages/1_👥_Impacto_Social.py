@@ -3,7 +3,7 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 from ia_assistant import renderizar_chat_ia
-from utils import carregar_dados_atlas, gerar_mapa_pydeck_3d, formata_numero
+from utils import carregar_dados_atlas, gerar_mapa_pydeck_3d, formata_numero, gerar_grafico_pareto
 from utils import BUCKET_SOCIAL
 
 st.set_page_config(
@@ -90,15 +90,26 @@ df_raw = carregar_dados_atlas()
 st.sidebar.title("🔍 Filtros de Análise (Social)")
 df_filtrado = df_raw.copy()
 
-datas_validas = df_raw['dt_registro'].dropna()
+datas_validas = df_raw['dt_registro']
 if not datas_validas.empty:
-    min_date = datas_validas.min().date()
-    max_date = datas_validas.max().date()
-    periodo_registro = st.sidebar.date_input("Data de Registro", value=[], min_value=min_date, max_value=max_date)
-    if isinstance(periodo_registro, (list, tuple)) and len(periodo_registro) == 2:
+    # Cria uma lista ordenada apenas com Mês/Ano únicos da base
+    periodos = sorted(datas_validas.dt.to_period('M').unique())
+    periodos_str = [p.strftime('%m/%Y') for p in periodos]
+    
+    if len(periodos_str) >= 2:
+        sel_periodo = st.sidebar.select_slider(
+            "Período de Registro (Mês/Ano)",
+            options=periodos_str,
+            value=(periodos_str[0], periodos_str[-1])
+        )
+        
+        # Converte de volta para data (do 1º dia do mês inicial ao último dia do mês final)
+        data_inicio = pd.to_datetime(sel_periodo[0], format='%m/%Y')
+        data_fim = pd.to_datetime(sel_periodo[1], format='%m/%Y') + pd.offsets.MonthEnd(1)
+        
         df_filtrado = df_filtrado[
-            (df_filtrado['dt_registro'].dt.date >= periodo_registro[0]) & 
-            (df_filtrado['dt_registro'].dt.date <= periodo_registro[1])
+            (df_filtrado['dt_registro'] >= data_inicio) & 
+            (df_filtrado['dt_registro'] <= data_fim)
         ]
 
 regioes = sorted([r for r in df_filtrado['regiao'].dropna().unique()])
@@ -118,63 +129,6 @@ if sel_tipologia:
 
 df = df_filtrado
 
-def gerar_grafico_pareto_social(df_dados, col_categoria, col_valor, titulo, max_categorias=15):
-    df_grp = df_dados.groupby(col_categoria)[col_valor].sum().reset_index()
-    df_grp = df_grp[df_grp[col_valor] > 0].sort_values(by=col_valor, ascending=False).reset_index(drop=True)
-    
-    if df_grp.empty:
-        fig = go.Figure()
-        fig.update_layout(title="Sem dados suficientes", template="plotly_white")
-        return fig
-    
-    total_geral = df_grp[col_valor].sum()
-    if len(df_grp) > max_categorias:
-        top_df = df_grp.iloc[:max_categorias].copy()
-        outros_val = df_grp.iloc[max_categorias:][col_valor].sum()
-        outros_row = pd.DataFrame({col_categoria: ['Outros'], col_valor: [outros_val]})
-        df_grp = pd.concat([top_df, outros_row], ignore_index=True)
-    
-    df_grp['pct'] = (df_grp[col_valor] / total_geral) * 100
-    df_grp['acumulado'] = df_grp['pct'].cumsum()
-    corte_idx = (df_grp['acumulado'] >= 50).idxmax() if not df_grp['acumulado'].empty else 0
-    cores = ['#ef4444' if i <= corte_idx else '#cbd5e1' for i in range(len(df_grp))]
-    
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=df_grp[col_categoria],
-        y=df_grp[col_valor],
-        name="Pessoas",
-        marker_color=cores,
-        text=[formata_numero(v) for v in df_grp[col_valor]],
-        textposition="outside",
-        textfont=dict(size=11, color="#0f172a"),
-        showlegend=False
-    ))
-    fig.add_trace(go.Scatter(
-        x=df_grp[col_categoria],
-        y=df_grp['acumulado'],
-        name="% Acumulado",
-        yaxis="y2",
-        mode="lines+markers+text",
-        text=[f"{p:.1f}%" for p in df_grp['acumulado']],
-        textposition="top center",
-        textfont=dict(size=10, color="#b45309", weight="bold"),
-        line=dict(color="#d97706", width=3),
-        marker=dict(size=7),
-        showlegend=False
-    ))
-    fig.add_shape(type="line", x0=-0.5, x1=len(df_grp)-0.5, y0=50, y1=50, yref="y2", line=dict(color="#dc2626", width=1.5, dash="dash"))
-    fig.update_layout(
-        title=dict(text=titulo, font=dict(size=15, color="#0f172a")),
-        xaxis=dict(title="", tickangle=-30, tickfont=dict(size=11, color="#334155")),
-        yaxis=dict(title="", showticklabels=False, visible=False),
-        yaxis2=dict(title="", overlaying="y", side="right", range=[0, 118], showticklabels=False, visible=False),
-        showlegend=False,
-        template="plotly_white",
-        height=420,
-        margin=dict(l=20, r=20, t=60, b=90)
-    )
-    return fig
 
 if 'DH_total_afetados_geral' not in df.columns:
     df['DH_total_afetados_geral'] = (
@@ -230,7 +184,7 @@ with tab1:
     deck1 = gerar_mapa_pydeck_3d(df, 'descricao_tipologia', 'DH_total_afetados_geral', nome_metrica_exata="Total de Afetados", eh_social=True)
     st.pydeck_chart(deck1)
     st.markdown("---")
-    fig1 = gerar_grafico_pareto_social(df, 'descricao_tipologia', 'DH_total_afetados_geral', "Pareto: População Afetada por Tipo de Desastre")
+    fig1 = gerar_grafico_pareto(df, 'descricao_tipologia', 'DH_total_afetados_geral', "Pareto: População Afetada por Tipo de Desastre", eh_social=True)
     st.plotly_chart(fig1, use_container_width=True)
     st.markdown("---")
     renderizar_chat_ia("soc_tab1", "Total de Afetados", df, bucket_destinatario=BUCKET_SOCIAL, prefixo_arquivo="conversa_social")
@@ -248,13 +202,14 @@ with tab2:
         st.pydeck_chart(deck2_b)
 
     st.markdown("---")
-    col_a, col_b = st.columns(2)
-    with col_a:
-        fig2_a = gerar_grafico_pareto_social(df, 'descricao_tipologia', 'DH_MORTOS', "Pareto: Mortes por Tipo de Desastre")
-        st.plotly_chart(fig2_a, use_container_width=True)
-    with col_b:
-        fig2_b = gerar_grafico_pareto_social(df, 'descricao_tipologia', 'DH_FERIDOS', "Pareto: Feridos por Tipo de Desastre")
-        st.plotly_chart(fig2_b, use_container_width=True)
+    
+    # ---------------- ALTERADO AQUI ----------------
+    fig2_a = gerar_grafico_pareto(df, 'descricao_tipologia', 'DH_MORTOS', "Pareto: Mortes por Tipo de Desastre", eh_social=True)
+    st.plotly_chart(fig2_a, use_container_width=True)
+
+    fig2_b = gerar_grafico_pareto(df, 'descricao_tipologia', 'DH_FERIDOS', "Pareto: Feridos por Tipo de Desastre", eh_social=True)
+    st.plotly_chart(fig2_b, use_container_width=True)
+    # -----------------------------------------------
 
     st.markdown("---")
     renderizar_chat_ia("soc_tab2", "Danos à Vida e Saúde", df, bucket_destinatario=BUCKET_SOCIAL, prefixo_arquivo="conversa_social")
@@ -270,13 +225,14 @@ with tab3:
         st.pydeck_chart(deck3_b)
 
     st.markdown("---")
-    col_a, col_b = st.columns(2)
-    with col_a:
-        fig3_a = gerar_grafico_pareto_social(df, 'descricao_tipologia', 'DH_DESABRIGADOS', "Pareto: Desabrigados por Tipo de Desastre")
-        st.plotly_chart(fig3_a, use_container_width=True)
-    with col_b:
-        fig3_b = gerar_grafico_pareto_social(df, 'descricao_tipologia', 'DH_DESALOJADOS', "Pareto: Desalojados por Tipo de Desastre")
-        st.plotly_chart(fig3_b, use_container_width=True)
+    
+    # ---------------- ALTERADO AQUI ----------------
+    fig3_a = gerar_grafico_pareto(df, 'descricao_tipologia', 'DH_DESABRIGADOS', "Pareto: Desabrigados por Tipo de Desastre", eh_social=True)
+    st.plotly_chart(fig3_a, use_container_width=True)
+
+    fig3_b = gerar_grafico_pareto(df, 'descricao_tipologia', 'DH_DESALOJADOS', "Pareto: Desalojados por Tipo de Desastre", eh_social=True)
+    st.plotly_chart(fig3_b, use_container_width=True)
+    # -----------------------------------------------
 
     st.markdown("---")
     renderizar_chat_ia("soc_tab3", "Deslocados e Sem Teto", df, bucket_destinatario=BUCKET_SOCIAL, prefixo_arquivo="conversa_social")
@@ -286,7 +242,7 @@ with tab4:
     deck4 = gerar_mapa_pydeck_3d(df, 'descricao_tipologia', 'DH_AFETADOS_SECA_ESTIAGEM', nome_metrica_exata="Afetados por Seca/Estiagem", eh_social=True)
     st.pydeck_chart(deck4)
     st.markdown("---")
-    fig4 = gerar_grafico_pareto_social(df, 'Sigla_UF', 'DH_AFETADOS_SECA_ESTIAGEM', "Pareto: Estados mais Atingidos por Seca e Estiagem")
+    fig4 = gerar_grafico_pareto(df, 'Sigla_UF', 'DH_AFETADOS_SECA_ESTIAGEM', "Pareto: Estados mais Atingidos por Seca e Estiagem", eh_social=True)
     st.plotly_chart(fig4, use_container_width=True)
     st.markdown("---")
     renderizar_chat_ia("soc_tab4", "Afetados por Seca e Estiagem", df, bucket_destinatario=BUCKET_SOCIAL, prefixo_arquivo="conversa_social")

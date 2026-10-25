@@ -3,6 +3,7 @@ import json
 import pandas as pd
 import numpy as np
 import streamlit as st
+import plotly.graph_objects as go
 import pydeck as pdk
 from google.cloud import storage
 from dotenv import load_dotenv
@@ -111,9 +112,9 @@ def carregar_dados_atlas(caminho_csv="BD_Atlas_Final.csv"):
         })
 
     if 'Data_Registro' in df.columns:
-        df['dt_registro'] = pd.to_datetime(df['Data_Registro'], errors='coerce')
+        df['dt_registro'] = pd.to_datetime(df['Data_Registro'], dayfirst=True)
     elif 'Data_Evento' in df.columns:
-        df['dt_registro'] = pd.to_datetime(df['Data_Evento'], errors='coerce')
+        df['dt_registro'] = pd.to_datetime(df['Data_Evento'], dayfirst=True)
     else:
         df['dt_registro'] = pd.Timestamp('2020-01-01')
 
@@ -306,3 +307,73 @@ def salvar_historico_no_bucket(bucket_name, file_prefix, historico, modulo_nome,
         return True, "Sucesso"
     except Exception as e:
         return False, str(e)
+
+
+
+def gerar_grafico_pareto(df_dados, col_categoria, col_valor, titulo, max_categorias=15, eh_social=False):
+    df_grp = df_dados.groupby(col_categoria)[col_valor].sum().reset_index()
+    df_grp = df_grp[df_grp[col_valor] > 0].sort_values(by=col_valor, ascending=False).reset_index(drop=True)
+    
+    if df_grp.empty:
+        fig = go.Figure()
+        fig.update_layout(title="Sem dados suficientes", template="plotly_white")
+        return fig
+    
+    total_geral = df_grp[col_valor].sum()
+    if len(df_grp) > max_categorias:
+        top_df = df_grp.iloc[:max_categorias].copy()
+        outros_val = df_grp.iloc[max_categorias:][col_valor].sum()
+        outros_row = pd.DataFrame({col_categoria: ['Outros'], col_valor: [outros_val]})
+        df_grp = pd.concat([top_df, outros_row], ignore_index=True)
+    
+    df_grp['pct'] = (df_grp[col_valor] / total_geral) * 100
+    df_grp['acumulado'] = df_grp['pct'].cumsum()
+    corte_idx = (df_grp['acumulado'] >= 50).idxmax() if not df_grp['acumulado'].empty else 0
+    cores = ['#ef4444' if i <= corte_idx else '#cbd5e1' for i in range(len(df_grp))]
+    
+    # AJUSTE 1: Aumentar o teto do gráfico em 25% para o texto respirar
+    max_y = df_grp[col_valor].max() * 1.25
+
+    # Define dinamicamente a função de formatação e o nome do eixo
+    func_fmt = formata_numero if eh_social else formata_moeda
+    nome_eixo = "Pessoas" if eh_social else "Valor (R$)"
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=df_grp[col_categoria],
+        y=df_grp[col_valor],
+        name=nome_eixo,
+        marker_color=cores,
+        text=[func_fmt(v) for v in df_grp[col_valor]],
+        textposition="outside",
+        textfont=dict(size=13, color="#0f172a"),
+        cliponaxis=False, # AJUSTE 2: Impede o corte do texto
+        showlegend=False
+    ))
+    fig.add_trace(go.Scatter(
+        x=df_grp[col_categoria],
+        y=df_grp['acumulado'],
+        name="% Acumulado",
+        yaxis="y2",
+        mode="lines+markers+text",
+        text=[f"{p:.1f}%" for p in df_grp['acumulado']],
+        textposition="top center",
+        # AJUSTE 3: Cor escura (#0f172a) e tamanho 11 para máximo contraste na porcentagem
+        textfont=dict(size=13, color="#0f172a", weight="bold"), 
+        line=dict(color="#d97706", width=3),
+        marker=dict(size=7),
+        cliponaxis=False,
+        showlegend=False
+    ))
+    
+    fig.update_layout(
+        title=dict(text=titulo, font=dict(size=21, color="#0f172a")),
+        xaxis=dict(title="", tickangle=-30, tickfont=dict(size=14, color="#334155")),
+        yaxis=dict(title="", range=[0, max_y], showticklabels=False, visible=False), # Aplicando a margem superior
+        yaxis2=dict(title="", overlaying="y", side="right", range=[0, 118], showticklabels=False, visible=False),
+        showlegend=False,
+        template="plotly_white",
+        height=420,
+        margin=dict(l=20, r=20, t=80, b=90) # AJUSTE 4: Margem superior maior (t=80)
+    )
+    return fig

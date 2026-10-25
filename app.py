@@ -5,7 +5,7 @@ import streamlit as st
 import pydeck as pdk
 import plotly.graph_objects as go
 from ia_assistant import renderizar_chat_ia
-from utils import carregar_dados_atlas, gerar_mapa_pydeck_3d, formata_moeda
+from utils import carregar_dados_atlas, gerar_mapa_pydeck_3d, formata_moeda, gerar_grafico_pareto
 from utils import BUCKET_ECONOMICO
 
 st.set_page_config(
@@ -89,15 +89,26 @@ df_raw = carregar_dados_atlas()
 st.sidebar.title("🔍 Filtros de Análise")
 df_filtrado = df_raw.copy()
 
-datas_validas = df_raw['dt_registro'].dropna()
+datas_validas = df_raw['dt_registro']
 if not datas_validas.empty:
-    min_date = datas_validas.min().date()
-    max_date = datas_validas.max().date()
-    periodo_registro = st.sidebar.date_input("Data de Registro", value=[], min_value=min_date, max_value=max_date)
-    if isinstance(periodo_registro, (list, tuple)) and len(periodo_registro) == 2:
+    # Cria uma lista ordenada apenas com Mês/Ano únicos da base
+    periodos = sorted(datas_validas.dt.to_period('M').unique())
+    periodos_str = [p.strftime('%m/%Y') for p in periodos]
+    
+    if len(periodos_str) >= 2:
+        sel_periodo = st.sidebar.select_slider(
+            "Período de Registro (Mês/Ano)",
+            options=periodos_str,
+            value=(periodos_str[0], periodos_str[-1])
+        )
+        
+        # Converte de volta para data (do 1º dia do mês inicial ao último dia do mês final)
+        data_inicio = pd.to_datetime(sel_periodo[0], format='%m/%Y')
+        data_fim = pd.to_datetime(sel_periodo[1], format='%m/%Y') + pd.offsets.MonthEnd(1)
+        
         df_filtrado = df_filtrado[
-            (df_filtrado['dt_registro'].dt.date >= periodo_registro[0]) & 
-            (df_filtrado['dt_registro'].dt.date <= periodo_registro[1])
+            (df_filtrado['dt_registro'] >= data_inicio) & 
+            (df_filtrado['dt_registro'] <= data_fim)
         ]
 
 regioes = sorted([r for r in df_filtrado['regiao'].dropna().unique()])
@@ -145,63 +156,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-def gerar_grafico_pareto(df_dados, col_categoria, col_valor, titulo, max_categorias=15):
-    df_grp = df_dados.groupby(col_categoria)[col_valor].sum().reset_index()
-    df_grp = df_grp[df_grp[col_valor] > 0].sort_values(by=col_valor, ascending=False).reset_index(drop=True)
-    
-    if df_grp.empty:
-        fig = go.Figure()
-        fig.update_layout(title="Sem dados suficientes", template="plotly_white")
-        return fig
-    
-    total_geral = df_grp[col_valor].sum()
-    if len(df_grp) > max_categorias:
-        top_df = df_grp.iloc[:max_categorias].copy()
-        outros_val = df_grp.iloc[max_categorias:][col_valor].sum()
-        outros_row = pd.DataFrame({col_categoria: ['Outros'], col_valor: [outros_val]})
-        df_grp = pd.concat([top_df, outros_row], ignore_index=True)
-    
-    df_grp['pct'] = (df_grp[col_valor] / total_geral) * 100
-    df_grp['acumulado'] = df_grp['pct'].cumsum()
-    corte_idx = (df_grp['acumulado'] >= 50).idxmax() if not df_grp['acumulado'].empty else 0
-    cores = ['#ef4444' if i <= corte_idx else '#cbd5e1' for i in range(len(df_grp))]
-    
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=df_grp[col_categoria],
-        y=df_grp[col_valor],
-        name="Valor (R$)",
-        marker_color=cores,
-        text=[formata_moeda(v) for v in df_grp[col_valor]],
-        textposition="outside",
-        textfont=dict(size=11, color="#0f172a"),
-        showlegend=False
-    ))
-    fig.add_trace(go.Scatter(
-        x=df_grp[col_categoria],
-        y=df_grp['acumulado'],
-        name="% Acumulado",
-        yaxis="y2",
-        mode="lines+markers+text",
-        text=[f"{p:.1f}%" for p in df_grp['acumulado']],
-        textposition="top center",
-        textfont=dict(size=10, color="#b45309", weight="bold"),
-        line=dict(color="#d97706", width=3),
-        marker=dict(size=7),
-        showlegend=False
-    ))
-    fig.add_shape(type="line", x0=-0.5, x1=len(df_grp)-0.5, y0=50, y1=50, yref="y2", line=dict(color="#dc2626", width=1.5, dash="dash"))
-    fig.update_layout(
-        title=dict(text=titulo, font=dict(size=15, color="#0f172a")),
-        xaxis=dict(title="", tickangle=-30, tickfont=dict(size=11, color="#334155")),
-        yaxis=dict(title="", showticklabels=False, visible=False),
-        yaxis2=dict(title="", overlaying="y", side="right", range=[0, 118], showticklabels=False, visible=False),
-        showlegend=False,
-        template="plotly_white",
-        height=420,
-        margin=dict(l=20, r=20, t=60, b=90)
-    )
-    return fig
+
 
 tab1, tab2, tab3, tab4 = st.tabs(["💰 Prejuízo Total", "🏢 Prejuízo Privado", "🏛️ Prejuízo Público", "🏚️ Dano Material"])
 
@@ -235,18 +190,19 @@ with tab2:
             st.pydeck_chart(deck2_b)
     
     st.markdown("---")
-    col_a, col_b = st.columns(2)
-    with col_a:
-        fig2 = gerar_grafico_pareto(df, 'descricao_tipologia', 'PEPR_total_privado', "Pareto: Prejuízo Privado por Tipo de Desastre")
-        st.plotly_chart(fig2, use_container_width=True)
-    with col_b:
-        cols_priv = [c for c in df.columns if c.startswith('PEPR_') and c != 'PEPR_total_privado']
-        if cols_priv:
-            df_setores_priv = df[cols_priv].sum().reset_index()
-            df_setores_priv.columns = ['Setor Privado', 'Valor']
-            df_setores_priv['Setor Privado'] = df_setores_priv['Setor Privado'].str.replace('PEPR_', '', regex=False).str.replace('(R$)', '', regex=False).str.strip()
-            fig_set_priv = gerar_grafico_pareto(df_setores_priv, 'Setor Privado', 'Valor', "Pareto: Setores Privados Mais Atingidos")
-            st.plotly_chart(fig_set_priv, use_container_width=True)
+    
+    # ---------------- ALTERADO AQUI ----------------
+    fig2 = gerar_grafico_pareto(df, 'descricao_tipologia', 'PEPR_total_privado', "Pareto: Prejuízo Privado por Tipo de Desastre")
+    st.plotly_chart(fig2, use_container_width=True)
+    
+    cols_priv = [c for c in df.columns if c.startswith('PEPR_') and c != 'PEPR_total_privado']
+    if cols_priv:
+        df_setores_priv = df[cols_priv].sum().reset_index()
+        df_setores_priv.columns = ['Setor Privado', 'Valor']
+        df_setores_priv['Setor Privado'] = df_setores_priv['Setor Privado'].str.replace('PEPR_', '', regex=False).str.replace('(R$)', '', regex=False).str.strip()
+        fig_set_priv = gerar_grafico_pareto(df_setores_priv, 'Setor Privado', 'Valor', "Pareto: Setores Privados Mais Atingidos")
+        st.plotly_chart(fig_set_priv, use_container_width=True)
+    # -----------------------------------------------
 
     st.markdown("---")
     renderizar_chat_ia("tab2", "Prejuízo Privado", df, bucket_destinatario=BUCKET_ECONOMICO, prefixo_arquivo="conversa_economico")
@@ -271,18 +227,19 @@ with tab3:
             st.pydeck_chart(deck3_b)
     
     st.markdown("---")
-    col_a, col_b = st.columns(2)
-    with col_a:
-        fig3 = gerar_grafico_pareto(df, 'descricao_tipologia', 'PEPL_total_publico', "Pareto: Prejuízo Público por Tipo de Desastre")
-        st.plotly_chart(fig3, use_container_width=True)
-    with col_b:
-        cols_pub = [c for c in df.columns if c.startswith('PEPL_') and c != 'PEPL_total_publico']
-        if cols_pub:
-            df_setores_pub = df[cols_pub].sum().reset_index()
-            df_setores_pub.columns = ['Serviço Público', 'Valor']
-            df_setores_pub['Serviço Público'] = df_setores_pub['Serviço Público'].str.replace('PEPL_', '', regex=False).str.replace('(R$)', '', regex=False).str.strip()
-            fig_set_pub = gerar_grafico_pareto(df_setores_pub, 'Serviço Público', 'Valor', "Pareto: Serviços Públicos Mais Atingidos")
-            st.plotly_chart(fig_set_pub, use_container_width=True)
+    
+    # ---------------- ALTERADO AQUI ----------------
+    fig3 = gerar_grafico_pareto(df, 'descricao_tipologia', 'PEPL_total_publico', "Pareto: Prejuízo Público por Tipo de Desastre")
+    st.plotly_chart(fig3, use_container_width=True)
+    
+    cols_pub = [c for c in df.columns if c.startswith('PEPL_') and c != 'PEPL_total_publico']
+    if cols_pub:
+        df_setores_pub = df[cols_pub].sum().reset_index()
+        df_setores_pub.columns = ['Serviço Público', 'Valor']
+        df_setores_pub['Serviço Público'] = df_setores_pub['Serviço Público'].str.replace('PEPL_', '', regex=False).str.replace('(R$)', '', regex=False).str.strip()
+        fig_set_pub = gerar_grafico_pareto(df_setores_pub, 'Serviço Público', 'Valor', "Pareto: Serviços Públicos Mais Atingidos")
+        st.plotly_chart(fig_set_pub, use_container_width=True)
+    # -----------------------------------------------
 
     st.markdown("---")
     renderizar_chat_ia("tab3", "Prejuízo Público", df, bucket_destinatario=BUCKET_ECONOMICO, prefixo_arquivo="conversa_economico")
