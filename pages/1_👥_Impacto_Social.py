@@ -135,6 +135,7 @@ if 'DH_total_afetados_geral' not in df.columns:
         df.get('DH_MORTOS', 0) +
         df.get('DH_DESAPARECIDOS', 0) +
         df.get('DH_DESABRIGADOS', 0) + 
+        df.get('DH_DESALOJADOS', 0) +
         df.get('DH_FERIDOS', 0) +
         df.get('DH_ENFERMOS', 0) 
     )
