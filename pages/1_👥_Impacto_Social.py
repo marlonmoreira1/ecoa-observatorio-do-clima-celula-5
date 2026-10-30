@@ -132,7 +132,11 @@ df = df_filtrado
 
 if 'DH_total_afetados_geral' not in df.columns:
     df['DH_total_afetados_geral'] = (
-        df.get('DH_total_danos_humanos_diretos', 0) + 
+        df.get('DH_MORTOS', 0) +
+        df.get('DH_DESAPARECIDOS', 0) +
+        df.get('DH_DESABRIGADOS', 0) + 
+        df.get('DH_FERIDOS', 0) +
+        df.get('DH_ENFERMOS', 0) +
         df.get('DH_OUTROS AFETADOS', 0)
     )
 if 'DH_deslocados_total' not in df.columns:
