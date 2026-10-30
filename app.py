@@ -167,8 +167,8 @@ with tab1:
     st.markdown("---")
     fig1 = gerar_grafico_pareto(df, 'descricao_tipologia', 'prejuizo_total', "Pareto: Prejuízo Total por Tipo de Desastre")
     st.plotly_chart(fig1, use_container_width=True)
-    st.markdown("---")
-    renderizar_chat_ia("tab1", "Prejuízo Total", df, bucket_destinatario=BUCKET_ECONOMICO, prefixo_arquivo="conversa_economico")
+    # st.markdown("---")
+    # renderizar_chat_ia("tab1", "Prejuízo Total", df, bucket_destinatario=BUCKET_ECONOMICO, prefixo_arquivo="conversa_economico")
 
 with tab2:
     st.subheader("Análise de Prejuízo Privado")
@@ -204,8 +204,8 @@ with tab2:
         st.plotly_chart(fig_set_priv, use_container_width=True)
     # -----------------------------------------------
 
-    st.markdown("---")
-    renderizar_chat_ia("tab2", "Prejuízo Privado", df, bucket_destinatario=BUCKET_ECONOMICO, prefixo_arquivo="conversa_economico")
+    # st.markdown("---")
+    # renderizar_chat_ia("tab2", "Prejuízo Privado", df, bucket_destinatario=BUCKET_ECONOMICO, prefixo_arquivo="conversa_economico")
 
 with tab3:
     st.subheader("Análise de Prejuízo Público")
@@ -241,8 +241,8 @@ with tab3:
         st.plotly_chart(fig_set_pub, use_container_width=True)
     # -----------------------------------------------
 
-    st.markdown("---")
-    renderizar_chat_ia("tab3", "Prejuízo Público", df, bucket_destinatario=BUCKET_ECONOMICO, prefixo_arquivo="conversa_economico")
+    # st.markdown("---")
+    # renderizar_chat_ia("tab3", "Prejuízo Público", df, bucket_destinatario=BUCKET_ECONOMICO, prefixo_arquivo="conversa_economico")
 
 with tab4:
     st.subheader("Análise de Danos Materiais")
@@ -251,5 +251,5 @@ with tab4:
     st.markdown("---")
     fig4 = gerar_grafico_pareto(df, 'descricao_tipologia', 'DM_total_danos_materiais', "Pareto: Danos Materiais por Tipo de Desastre")
     st.plotly_chart(fig4, use_container_width=True)
-    st.markdown("---")
-    renderizar_chat_ia("tab4", "Danos Materiais", df, bucket_destinatario=BUCKET_ECONOMICO, prefixo_arquivo="conversa_economico")
+    # st.markdown("---")
+    # renderizar_chat_ia("tab4", "Danos Materiais", df, bucket_destinatario=BUCKET_ECONOMICO, prefixo_arquivo="conversa_economico")

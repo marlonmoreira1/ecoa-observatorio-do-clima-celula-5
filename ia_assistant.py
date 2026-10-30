@@ -34,14 +34,14 @@ VERDADES DA BASE (referência de escala; valem para a base completa, sem filtro 
 
 
 def obter_api_key():
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("GEMINI_API_KEY_VIDTEK")
     if api_key:
         return api_key
     try:
         if "GEMINI_API_KEY_VIDTEK" in st.secrets:
             return st.secrets["GEMINI_API_KEY_VIDTEK"]
         elif "GEMINI_API_KEY" in st.secrets:
-            return st.secrets["GEMINI_API_KEY"]
+            return st.secrets["GEMINI_API_KEY_VIDTEK"]
     except Exception:
         pass
     return ""

@@ -186,8 +186,8 @@ with tab1:
     st.markdown("---")
     fig1 = gerar_grafico_pareto(df, 'descricao_tipologia', 'DH_total_afetados_geral', "Pareto: População Afetada por Tipo de Desastre", eh_social=True)
     st.plotly_chart(fig1, use_container_width=True)
-    st.markdown("---")
-    renderizar_chat_ia("soc_tab1", "Total de Afetados", df, bucket_destinatario=BUCKET_SOCIAL, prefixo_arquivo="conversa_social")
+    # st.markdown("---")
+    # renderizar_chat_ia("soc_tab1", "Total de Afetados", df, bucket_destinatario=BUCKET_SOCIAL, prefixo_arquivo="conversa_social")
 
 with tab2:
     st.subheader("Análise de Danos à Vida (Mortos, Feridos e Enfermos)")
@@ -211,8 +211,8 @@ with tab2:
     st.plotly_chart(fig2_b, use_container_width=True)
     # -----------------------------------------------
 
-    st.markdown("---")
-    renderizar_chat_ia("soc_tab2", "Danos à Vida e Saúde", df, bucket_destinatario=BUCKET_SOCIAL, prefixo_arquivo="conversa_social")
+    # st.markdown("---")
+    # renderizar_chat_ia("soc_tab2", "Danos à Vida e Saúde", df, bucket_destinatario=BUCKET_SOCIAL, prefixo_arquivo="conversa_social")
 
 with tab3:
     st.subheader("Análise de População Deslocada (Desabrigados e Desalojados)")
@@ -234,8 +234,8 @@ with tab3:
     st.plotly_chart(fig3_b, use_container_width=True)
     # -----------------------------------------------
 
-    st.markdown("---")
-    renderizar_chat_ia("soc_tab3", "Deslocados e Sem Teto", df, bucket_destinatario=BUCKET_SOCIAL, prefixo_arquivo="conversa_social")
+    # st.markdown("---")
+    # renderizar_chat_ia("soc_tab3", "Deslocados e Sem Teto", df, bucket_destinatario=BUCKET_SOCIAL, prefixo_arquivo="conversa_social")
 
 with tab4:
     st.subheader("Análise do Impacto Social por Secas e Estiagens")
@@ -244,5 +244,5 @@ with tab4:
     st.markdown("---")
     fig4 = gerar_grafico_pareto(df, 'Sigla_UF', 'DH_AFETADOS_SECA_ESTIAGEM', "Pareto: Estados mais Atingidos por Seca e Estiagem", eh_social=True)
     st.plotly_chart(fig4, use_container_width=True)
-    st.markdown("---")
-    renderizar_chat_ia("soc_tab4", "Afetados por Seca e Estiagem", df, bucket_destinatario=BUCKET_SOCIAL, prefixo_arquivo="conversa_social")
+    # st.markdown("---")
+    # renderizar_chat_ia("soc_tab4", "Afetados por Seca e Estiagem", df, bucket_destinatario=BUCKET_SOCIAL, prefixo_arquivo="conversa_social")

@@ -455,7 +455,7 @@ def gerar_diagnostico_executivo(desde=None):
     """Gera o diagnóstico consolidado baseado no histórico de chats."""
     print("⏳ Gerando relatório consolidado do fim do dia a partir dos logs...")
 
-    api_key = os.getenv("GEMINI_API_KEY_VIDTEK") or os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("GEMINI_API_KEY_VIDTEK") or os.getenv("GEMINI_API_KEY_VIDTEK")
     if not api_key:
         print("❌ Defina GEMINI_API_KEY_VIDTEK ou GEMINI_API_KEY.")
         return None
