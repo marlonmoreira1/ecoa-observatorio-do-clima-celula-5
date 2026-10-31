@@ -146,47 +146,70 @@ def montar_esquema(df: pd.DataFrame) -> str:
     return "\n".join(linhas)
 
 
-# ---------------------------------------------------------------- planejamento
+# ---------------------------------------------------------------- PLANEJAMENTO SEGURO (SEM EVAL)
 def planejar_consultas(model, pergunta: str, esquema: str) -> list[dict]:
     prompt = f"""
-Você gera código Pandas. O DataFrame se chama 'df' e tem estas colunas:
+Você é um gerador de especificações de consulta em dados climáticos.
+O DataFrame se chama 'df' e tem estas colunas:
 {esquema}
 
 Pergunta do usuário: "{pergunta}"
 
-Responda SOMENTE com JSON válido: uma lista de até {MAX_CONSULTAS} objetos
-{{"titulo": "...", "codigo": "..."}}.
+Responda SOMENTE com um JSON válido: uma lista de até {MAX_CONSULTAS} objetos no seguinte formato exato:
+[
+  {{
+    "titulo": "Título curto da análise",
+    "agrupamento": ["coluna1"], 
+    "metrica": "nome_da_coluna_de_valor",
+    "operacao": "sum",
+    "top_n": 10
+  }}
+]
 
-REGRAS:
-1. Cada "codigo" é UMA expressão Pandas de uma linha sobre 'df' (sem atribuições, sem import).
-2. SEMPRE agregue (groupby + sum/count/mean). Nunca devolva linhas brutas de 'df'.
-3. SEMPRE limite o tamanho: use .nlargest(10) ou .head(10) em agrupamentos com muitas categorias
-   (município, estado). Agrupamentos pequenos (região, tipologia) podem ir completos.
-4. Pergunta simples = 1 consulta. Pergunta de diagnóstico/visão geral = várias, uma por
-   dimensão pedida (região, UF, município, tempo, tipologia).
-5. Use só colunas que existem na lista acima.
-6. NUNCA divida, multiplique ou converta valores monetários (nada de /1e9, /1000, *100):
-   devolva o valor em reais como está. A formatação é feita pelo sistema.
-7. NUNCA renomeie colunas de valor (nada de agg(total=...) ou .rename): mantenha o nome original
-   (ex.: df.groupby('regiao')['prejuizo_total'].sum()), pois é o nome que identifica o valor em R$.
+REGRAS ESTRITAS:
+1. "agrupamento": Lista com 1 ou 2 colunas categóricas existentes no esquema (ex: ["regiao"], ["Sigla_UF"], ["descricao_tipologia"]).
+2. "metrica": Exatamente 1 coluna numérica de valor existente no esquema (ex: "prejuizo_total", "DH_MORTOS", "PEPR_total_privado").
+3. "operacao": Apenas uma destas opções: "sum", "mean", "count", "max", "min".
+4. "top_n": Número inteiro de linhas de retorno (padrão 10).
+5. NUNCA invente nomes de colunas que não estão no esquema.
 """
     bruto = _gerar(model, prompt)
     bruto = re.sub(r"^```(?:json)?|```$", "", bruto.strip(), flags=re.M).strip()
-    consultas = json.loads(bruto)
-    return [c for c in consultas if "codigo" in c][:MAX_CONSULTAS]
-
-
-# ---------------------------------------------------------------- execução local
-# Divisão por constante de escala (/1e9, /1000, .div(1000000)) muda a ordem de grandeza: proibido.
-_RE_ESCALA = re.compile(r"(?:/|\.div\(|\.floordiv\()\s*\(?\s*(?:1e\d+|10\s*\*\*\s*\d+|\d[\d_]{3,})", re.I)
-
-
-def executar_query_local(codigo: str, df: pd.DataFrame):
-    if _RE_ESCALA.search(codigo):
-        return None, "conversão de escala não é permitida"
     try:
-        resultado = eval(codigo, {"__builtins__": {}}, {"df": df, "pd": pd})
-        return resultado, None
+        consultas = json.loads(bruto)
+        return [c for c in consultas if isinstance(c, dict) and "metrica" in c][:MAX_CONSULTAS]
+    except Exception:
+        return []
+
+
+# ---------------------------------------------------------------- EXECUÇÃO ESTRUTURADA 100% SEGURA
+def executar_consulta_estruturada(params: dict, df: pd.DataFrame):
+    colunas_permitidas = set(df.columns)
+    operacoes_validas = {"sum", "mean", "count", "min", "max"}
+
+    agrupamento = params.get("agrupamento", [])
+    if isinstance(agrupamento, str):
+        agrupamento = [agrupamento]
+
+    metrica = params.get("metrica")
+    op = params.get("operacao", "sum")
+    top_n = params.get("top_n", 10)
+
+    # Validação rigorosa por lista branca (Whitelist)
+    if not agrupamento or not all(col in colunas_permitidas for col in agrupamento):
+        return None, "Coluna de agrupamento inválida ou inexistente."
+
+    if metrica not in colunas_permitidas:
+        return None, f"Coluna de métrica '{metrica}' não permitida."
+
+    if op not in operacoes_validas:
+        return None, f"Operação '{op}' não permitida."
+
+    try:
+        # Execução nativa no Pandas sem NENHUM eval()
+        df_res = df.groupby(agrupamento, as_index=False)[metrica].agg(op)
+        df_res = df_res.sort_values(by=metrica, ascending=(op == "min")).head(top_n)
+        return df_res, None
     except Exception as e:
         return None, str(e)
 
@@ -241,9 +264,10 @@ def responder_pergunta(model, pergunta: str, df_secao: pd.DataFrame, nome_tab: s
 
     blocos, falhas = [], []
     for c in consultas:
-        res, erro = executar_query_local(c["codigo"], df_secao)
+        # EXECUÇÃO SEGURA ESTRUTURADA
+        res, erro = executar_consulta_estruturada(c, df_secao)
         if erro:
-            falhas.append(c.get("titulo", c["codigo"]))
+            falhas.append(c.get("titulo", "Consulta"))
         else:
             blocos.append((c.get("titulo", "Resultado"), resumir_para_prompt(res)))
 
@@ -285,6 +309,9 @@ def renderizar_chat_ia(chave_tab: str, nome_tab: str, df_secao: pd.DataFrame,
             }]
 
         chat_container = st.container()
+
+        # AVISO LGPD ADICIONADO AQUI:
+        st.caption("🔒 *Conformidade LGPD: As perguntas são processadas e armazenadas de forma anônima para aprimoramento contínuo dos diagnósticos do Observatório.*")
 
         if prompt_user := st.chat_input(f"Pergunte sobre qualquer dado de {nome_tab}...", key=f"chat_input_{chave_tab}"):
             st.session_state[key_historico].append({"role": "user", "content": prompt_user})
